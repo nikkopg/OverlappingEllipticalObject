@@ -5,32 +5,38 @@ import numpy as np
 class ImageProcessor:
     def __init__(self) -> None:
         self._concave_point_indices = []
-
+    
 
     def midpoint(self, p1, p2):
         return ((p1[0]+p2[0])/2, (p1[1]+p2[1])/2)
 
 
-    def get_centroid(c):
+    def get_centroid(self, c):
         M = cv2.moments(np.array(c))
         cx = int(M['m10']/M['m00'])
         cy = int(M['m01']/M['m00'])
         return cx, cy
 
 
-    def merge_contour(c1, c2):
+    def merge_contour(self, c1, c2):
         return np.concatenate((np.array(c1).reshape(-1,1,2), np.array(c2).reshape(-1,1,2)))
+    
+
+    def split_list(self, alist, idxlist):
+        return [alist[i:j] for i, j in zip([0]+idxlist, idxlist+[None])]
 
 
-    def get_concave_points(self, image, blur_kernel=11):
+    def get_biggest_contour(self, image, blur_kernel=11):
         # preprocess
         blurred = cv2.medianBlur(image, blur_kernel)
         _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
 
         # get contours
-        countours, hierarchy = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        biggest_contour = sorted(countours, key=cv2.contourArea)[-2]    # TODO: [-2] because the biggest is the corner
+        countours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        return sorted(countours, key=cv2.contourArea)[-2]    # TODO: [-2] because the biggest is the corner
 
+
+    def get_concave_points(self, biggest_contour):
         # get approximated contour
         peri = cv2.arcLength(biggest_contour, True)
         approx = cv2.approxPolyDP(biggest_contour, 0.01*peri, True)
@@ -47,13 +53,21 @@ class ImageProcessor:
             if dist < 0:
                 concave_points.append(approx[n])
         
-
+        concave_point_indices = []
         for i, p in enumerate(biggest_contour):
             if p[0].tolist() in np.array(concave_points).reshape(-1, 2).tolist():
-                self._concave_point_indices.append(i)
+                concave_point_indices.append(i)
 
-        return self._concave_point_indices
+        return concave_point_indices
     
+
+    def get_contour_segments(self, biggest_contour, concave_point_indices):
+        contour_segment = self.split_list(biggest_contour.tolist(), concave_point_indices)
+        contour_segment[0] = self.merge_contour(contour_segment[0], contour_segment[-1]).tolist()
+        contour_segment.pop(-1)
+
+        return contour_segment
+
 
     def calculate_ellipticity(self, cnt1, cnt2=None):
         if cnt2 is not None:
